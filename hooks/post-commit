@@ -1,0 +1,47 @@
+#!/bin/bash
+# Dev Brain — post-commit hook
+# Ingests the latest commit into the knowledge graph.
+# Runs in background (&) so it never blocks git operations.
+# Failures are logged, never fatal.
+
+# Resolve BRAIN_DIR relative to the hook location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Default: assumes dev-brain is a sibling of the repo
+BRAIN_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)/dev-brain"
+
+# Override via environment variable if set
+if [ -n "$DEV_BRAIN_DIR" ]; then
+    BRAIN_DIR="$DEV_BRAIN_DIR"
+fi
+
+if [ ! -d "$BRAIN_DIR" ]; then
+    # Silent exit — Brain not set up yet
+    exit 0
+fi
+
+# Try Windows venv first, then Unix
+PYTHON="$BRAIN_DIR/.venv/Scripts/python.exe"
+if [ ! -f "$PYTHON" ]; then
+    PYTHON="$BRAIN_DIR/.venv/bin/python"
+fi
+
+if [ ! -f "$PYTHON" ]; then
+    # Silent exit — Brain not set up yet
+    exit 0
+fi
+
+LOG_FILE="$BRAIN_DIR/logs/hook_errors.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+# Detect repo name — defaults to "primary"
+REPO_NAME="primary"
+
+# Run ingestion in background — never blocks git
+(
+    cd "$BRAIN_DIR" || exit 1
+    "$PYTHON" -m ingestion.commit_ingestor --repo "$REPO_NAME" --single HEAD 2>&1 \
+        | while read -r line; do echo "$(date -Iseconds) $line"; done \
+        >> "$LOG_FILE"
+) &
+
+exit 0
