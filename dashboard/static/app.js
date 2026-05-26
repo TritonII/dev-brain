@@ -536,7 +536,7 @@ function switchView(viewName) {
     currentView = viewName;
     
     // Toggle active tabs class
-    ["visualizer", "decisions", "problems"].forEach(v => {
+    ["visualizer", "story", "decisions", "problems"].forEach(v => {
         const tab = document.getElementById(`tab-${v}`);
         const view = document.getElementById(`view-${v}`);
         
@@ -550,6 +550,7 @@ function switchView(viewName) {
     });
 
     // Populate data based on active view
+    if (viewName === "story") loadStoryLog();
     if (viewName === "decisions") loadDecisions("active");
     if (viewName === "problems") loadProblems("open");
 }
@@ -769,4 +770,242 @@ function showNotification(title, description, type = "success") {
     setTimeout(() => {
         notif.className = "fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 transition duration-300 flex items-center gap-4 px-5 py-4 rounded-2xl shadow-xl glass-card border border-white/5";
     }, 4500);
+}
+
+
+// ── Feature: Story Mode Chronological Narrative Log ──────────────────────────
+
+async function loadStoryLog() {
+    const timeline = document.getElementById("story-timeline");
+    timeline.innerHTML = `
+        <div class="flex justify-center py-10 text-white/30 text-xs">
+            <i class="fa-solid fa-spinner fa-spin mr-1.5 text-base"></i>
+            Loading Story Narrative...
+        </div>
+    `;
+
+    try {
+        const res = await fetch("/api/story_log");
+        const logData = await res.json();
+        
+        timeline.innerHTML = "";
+        
+        if (logData.length === 0) {
+            timeline.innerHTML = `
+                <div class="py-16 text-center text-white/30 text-xs">
+                    No story events found in your Dev Brain. Add session notes or backfill commits to start compiling history!
+                </div>
+            `;
+            return;
+        }
+
+        logData.forEach((session, index) => {
+            const card = document.createElement("div");
+            card.className = "relative pl-12 pr-4 transition duration-200 group";
+            
+            // Dot indicator on central line
+            const dot = document.createElement("div");
+            dot.className = "absolute left-[21px] top-1.5 w-3.5 h-3.5 rounded-full border-2 border-indigo-500 bg-[#0e1324] z-10 transition duration-200 group-hover:bg-indigo-500 shadow-md shadow-indigo-500/50";
+            
+            // Main timeline card body
+            const body = document.createElement("div");
+            body.className = "glass-card p-5 rounded-2xl border border-white/5 flex flex-col gap-3 relative hover:border-white/10 hover:bg-white/10 transition duration-200";
+            
+            // Meta row (date, focus area badge)
+            const metaRow = document.createElement("div");
+            metaRow.className = "flex justify-between items-center";
+            
+            const dateSpan = document.createElement("span");
+            dateSpan.className = "text-[10px] font-mono text-white/40 uppercase bg-white/5 px-2 py-0.5 rounded";
+            dateSpan.innerText = session.date;
+            
+            const badgeSpan = document.createElement("span");
+            badgeSpan.className = "px-2 py-0.5 rounded text-[10px] font-semibold font-mono tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase";
+            badgeSpan.innerText = session.type || "DevSession";
+            
+            metaRow.appendChild(dateSpan);
+            metaRow.appendChild(badgeSpan);
+
+            // Title & Description
+            const title = document.createElement("h3");
+            title.className = "text-lg font-bold font-outfit text-white leading-tight cursor-pointer hover:text-indigo-400 transition";
+            title.innerText = session.title;
+            
+            // Quick focus click handler
+            title.onclick = () => {
+                switchView("visualizer");
+                if (cy && cy.getElementById(session.id).length > 0) {
+                    cy.getElementById(session.id).select();
+                    inspectNode(cy.getElementById(session.id).data());
+                }
+            };
+            
+            const summary = document.createElement("p");
+            summary.className = "text-xs text-white/60 leading-relaxed font-outfit";
+            summary.innerText = session.summary || "No description provided.";
+
+            // Assemble nested accordion lists
+            const detailsList = document.createElement("div");
+            detailsList.className = "flex flex-col gap-2 mt-3 pt-3 border-t border-white/5";
+
+            // 1. Decisions Accordion
+            if (session.decisions && session.decisions.length > 0) {
+                detailsList.appendChild(createAccordionSection(
+                    "Decisions Adopted", 
+                    "fa-solid fa-gavel text-emerald-400", 
+                    session.decisions,
+                    "emerald"
+                ));
+            }
+
+            // 2. Problems Resolved
+            if (session.problems && session.problems.length > 0) {
+                detailsList.appendChild(createAccordionSection(
+                    "Problems & Blockers", 
+                    "fa-solid fa-circle-exclamation text-rose-400", 
+                    session.problems,
+                    "rose"
+                ));
+            }
+
+            // 3. Experiments Run
+            if (session.experiments && session.experiments.length > 0) {
+                detailsList.appendChild(createAccordionSection(
+                    "Experiments Conducted", 
+                    "fa-solid fa-flask text-purple-400", 
+                    session.experiments,
+                    "purple"
+                ));
+            }
+
+            // 4. Artifacts Produced
+            if (session.artifacts && session.artifacts.length > 0) {
+                detailsList.appendChild(createAccordionSection(
+                    "Artifacts Produced", 
+                    "fa-solid fa-file-code text-slate-400", 
+                    session.artifacts,
+                    "slate"
+                ));
+            }
+
+            body.appendChild(metaRow);
+            body.appendChild(title);
+            body.appendChild(summary);
+            body.appendChild(detailsList);
+            
+            card.appendChild(dot);
+            card.appendChild(body);
+            timeline.appendChild(card);
+        });
+
+    } catch (e) {
+        console.error("Error loading Story Log:", e);
+        timeline.innerHTML = `<p class="text-xs text-rose-400 text-center py-10">Error loading chronological story log: ${e.message}</p>`;
+    }
+}
+
+// Helper to create expandable chronological accordion lists
+function createAccordionSection(title, iconClass, items, theme) {
+    const section = document.createElement("div");
+    section.className = "w-full border border-white/5 rounded-xl bg-[#090d16]/30 overflow-hidden";
+
+    // Header toggle bar
+    const header = document.createElement("button");
+    header.className = "w-full px-4 py-2 bg-white/5 hover:bg-white/10 transition flex justify-between items-center text-[10px] font-semibold text-white/70 hover:text-white uppercase tracking-wider";
+    header.innerHTML = `
+        <span class="flex items-center gap-2"><i class="${iconClass}"></i>${title} (${items.length})</span>
+        <i class="fa-solid fa-chevron-down text-[8px] transition duration-200 rotate-0"></i>
+    `;
+
+    // Items list container
+    const panel = document.createElement("div");
+    panel.className = "hidden px-4 py-3 flex flex-col gap-3 border-t border-white/5";
+
+    header.onclick = () => {
+        const icon = header.querySelector(".fa-chevron-down");
+        if (panel.classList.contains("hidden")) {
+            panel.classList.remove("hidden");
+            icon.className = "fa-solid fa-chevron-down text-[8px] transition duration-200 rotate-180";
+        } else {
+            panel.classList.add("hidden");
+            icon.className = "fa-solid fa-chevron-down text-[8px] transition duration-200 rotate-0";
+        }
+    };
+
+    // Populate panel elements
+    items.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "flex justify-between items-start gap-4 border-b border-white/5 pb-2.5 last:border-0 last:pb-0";
+
+        const textDiv = document.createElement("div");
+        textDiv.className = "flex-1 flex flex-col gap-0.5 text-xs";
+
+        const nameLabel = document.createElement("span");
+        nameLabel.className = "font-bold text-white leading-tight font-outfit";
+        nameLabel.innerText = item.name;
+
+        const summaryLabel = document.createElement("span");
+        summaryLabel.className = "text-[11px] text-white/55 leading-normal mt-0.5";
+        summaryLabel.innerText = item.summary || item.rationale || "No detail provided.";
+
+        textDiv.appendChild(nameLabel);
+        textDiv.appendChild(summaryLabel);
+
+        // Quick Graph focus button
+        const focusBtn = document.createElement("button");
+        focusBtn.className = "px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/25 border border-indigo-500/20 text-indigo-400 text-[9px] font-semibold transition shrink-0 self-center flex items-center gap-1 hover:text-white";
+        focusBtn.innerHTML = `<i class="fa-solid fa-crosshairs"></i>Focus`;
+        focusBtn.onclick = () => {
+            switchView("visualizer");
+            if (cy && cy.getElementById(item.id).length > 0) {
+                cy.getElementById(item.id).select();
+                inspectNode(cy.getElementById(item.id).data());
+            } else {
+                showNotification("Notice", `Node "${item.name}" exists semantically, but is grouped under high-level temporal timelines.`, "info");
+            }
+        };
+
+        row.appendChild(textDiv);
+        row.appendChild(focusBtn);
+        panel.appendChild(row);
+    });
+
+    section.appendChild(header);
+    section.appendChild(panel);
+    return section;
+}
+
+
+// ── Feature: AI Session Note Auto-Drafting ───────────────────────────────────
+
+async function triggerAutoDraft() {
+    const btn = document.getElementById("btn-auto-draft");
+    const originalContent = btn.innerHTML;
+    
+    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1.5"></i>Drafting from Git... (takes 5-15s)`;
+    btn.disabled = true;
+
+    try {
+        const res = await fetch("/api/draft_session");
+        
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.detail || "API drafting failed");
+        }
+        
+        const data = await res.json();
+        
+        // Populate inputs
+        document.getElementById("note-title").value = data.title;
+        document.getElementById("note-content").value = data.content;
+        
+        showNotification("Auto-Draft Complete", "Successfully drafted session summary from recent git commits!", "success");
+        
+    } catch (e) {
+        console.error("Error auto-drafting:", e);
+        showNotification("Auto-Draft Failed", e.message || "Could not draft session note from git history", "error");
+    } finally {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+    }
 }

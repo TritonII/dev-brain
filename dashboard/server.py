@@ -639,6 +639,209 @@ async def get_problems(status: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/story_log")
+async def get_story_log():
+    """Retrieve a chronological, hierarchical log of development sessions."""
+    if IS_DEMO_MODE:
+        return [
+            {
+                "id": "node_session_1",
+                "date": "2026-05-10",
+                "title": "Sprint 1: Caching Tier",
+                "summary": "Focused on implementing a robust, distributed caching strategy to address response delays.",
+                "decisions": [
+                    {
+                        "id": "node_decision_redis",
+                        "name": "Use Redis for Cache",
+                        "summary": "We chose Redis over Memcached for caching to support rich data types and LRU policies.",
+                        "rationale": "Redis offers sub-millisecond key-value retrieval and natively supports eviction policies (LRU)."
+                    }
+                ],
+                "problems": [
+                    {
+                        "id": "node_problem_lag",
+                        "name": "High API Response Lag",
+                        "summary": "Concurrent load is causing response latency to spike past 800ms during peak hours.",
+                        "status": "resolved"
+                    }
+                ],
+                "experiments": [
+                    {
+                        "id": "node_exp_redis",
+                        "name": "Redis vs In-Memory dict",
+                        "summary": "Tested Redis local memory footprint vs unbounded in-memory Python dictionary cache.",
+                        "success": True
+                    }
+                ],
+                "artifacts": [
+                    {
+                        "id": "node_artifact_spec",
+                        "name": "CACHING_SPEC.md",
+                        "summary": "Architecture specifications document detailing API caching and Mutex strategies."
+                    }
+                ]
+            },
+            {
+                "id": "node_session_2",
+                "date": "2026-05-15",
+                "title": "Sprint 2: Auth Strategy",
+                "summary": "Explored and compared scalable authentication frameworks for third-party developer integrations.",
+                "decisions": [
+                    {
+                        "id": "node_decision_jwt",
+                        "name": "Stateless JWT Tokens",
+                        "summary": "Adopted stateless JWT tokens signed locally on gateways to avoid multi-region DB session checks.",
+                        "rationale": "Stateless signatures prevent centralized session database hits, avoiding regional latency bottlenecks."
+                    }
+                ],
+                "problems": [],
+                "experiments": [
+                    {
+                        "id": "node_exp_jwt",
+                        "name": "Stateless JWT Latency",
+                        "summary": "Measured stateless JWT local gateway check speed against central DB session calls.",
+                        "success": True
+                    }
+                ],
+                "artifacts": []
+            },
+            {
+                "id": "node_session_3",
+                "date": "2026-05-20",
+                "title": "Sprint 3: Thread Panic",
+                "summary": "Investigated and resolved a sporadic thread deadlock freeze in local pools.",
+                "decisions": [
+                    {
+                        "id": "node_decision_mutex",
+                        "name": "Thread-Safe Mutex Lock",
+                        "summary": "Chose a thread-safe local Mutex lock to isolate concurrency race conditions strictly within local process pools.",
+                        "rationale": "Local Mutex lock prevents thread collisions during shared cache writes without introducing network overhead."
+                    }
+                ],
+                "problems": [
+                    {
+                        "id": "node_problem_lag",
+                        "name": "High API Response Lag",
+                        "summary": "Concurrent load is causing response latency to spike past 800ms during peak hours.",
+                        "status": "resolved"
+                    }
+                ],
+                "experiments": [],
+                "artifacts": []
+            }
+        ]
+
+    settings = get_settings()
+    group_id = settings.GRAPHITI_GROUP_ID
+    
+    # Query all DevSessions
+    cypher_sessions = """
+    MATCH (s:Entity)
+    WHERE (s.group_id = $group_id OR $group_id IN s.group_ids)
+      AND ('DevSession' IN labels(s) OR 'DevSession' IN s.labels)
+    RETURN s
+    ORDER BY s.session_date DESC, s.created_at DESC
+    """
+    
+    try:
+        session_records = await execute_cypher(cypher_sessions, {"group_id": group_id})
+        story_log = []
+        
+        for record in session_records:
+            s_node = record.get("s")
+            if s_node is None:
+                continue
+            
+            uuid = s_node.get("uuid")
+            name = s_node.get("name", "Unnamed Session")
+            summary = s_node.get("summary", "")
+            created_at = s_node.get("created_at")
+            
+            # Extract date
+            session_date = s_node.get("session_date") or created_at
+            date_str = session_date.strftime("%Y-%m-%d") if hasattr(session_date, "strftime") else str(session_date)[:10]
+            
+            # Fetch all entities connected to this session
+            cypher_connections = """
+            MATCH (s:Entity {uuid: $uuid})-[r]-(e:Entity)
+            WHERE e.group_id = $group_id OR $group_id IN e.group_ids
+            RETURN e
+            """
+            conn_records = await execute_cypher(cypher_connections, {"uuid": uuid, "group_id": group_id})
+            
+            decisions = []
+            problems = []
+            experiments = []
+            artifacts = []
+            
+            for conn_rec in conn_records:
+                e_node = conn_rec.get("e")
+                if e_node is None:
+                    continue
+                
+                # Check entity labels
+                e_labels = list(e_node.labels) if hasattr(e_node, "labels") else []
+                e_type = "Entity"
+                for label in e_labels:
+                    if label != "Entity":
+                        e_type = label
+                        break
+                if e_type == "Entity" and e_node.get("labels"):
+                    props_labels = e_node.get("labels")
+                    if isinstance(props_labels, list) and props_labels:
+                        e_type = props_labels[0]
+                
+                # Parse attributes
+                e_attrs = {}
+                attrs_raw = e_node.get("attributes")
+                if attrs_raw:
+                    import json
+                    if isinstance(attrs_raw, str):
+                        try:
+                            e_attrs = json.loads(attrs_raw)
+                        except Exception:
+                            pass
+                    elif isinstance(attrs_raw, dict):
+                        e_attrs = attrs_raw
+                
+                item = {
+                    "id": e_node.get("uuid"),
+                    "name": e_node.get("name", "Unnamed"),
+                    "summary": e_node.get("summary", ""),
+                    "attributes": e_attrs
+                }
+                
+                if e_type == "Decision":
+                    item["status"] = e_attrs.get("status") or e_node.get("status") or "active"
+                    item["rationale"] = e_attrs.get("rationale") or e_node.get("rationale") or ""
+                    decisions.append(item)
+                elif e_type == "Problem":
+                    item["status"] = e_attrs.get("status") or e_node.get("status") or "open"
+                    problems.append(item)
+                elif e_type == "Experiment":
+                    item["success"] = e_attrs.get("success") or e_node.get("success") or False
+                    experiments.append(item)
+                elif e_type == "Artifact":
+                    artifacts.append(item)
+                    
+            story_log.append({
+                "id": uuid,
+                "date": date_str,
+                "title": name,
+                "summary": summary,
+                "decisions": decisions,
+                "problems": problems,
+                "experiments": experiments,
+                "artifacts": artifacts
+            })
+            
+        return story_log
+        
+    except Exception as e:
+        logger.error("Error retrieving story log: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/ingest")
 async def ingest_session_note(payload: SessionNoteInput):
     """Ingest a session note directly into the Dev Brain."""
@@ -692,6 +895,48 @@ async def ingest_session_note(payload: SessionNoteInput):
         
     except Exception as e:
         logger.error("Error ingesting session note from dashboard: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/draft_session")
+async def draft_session():
+    """Auto-draft a developer session summary using recent Git history and Gemini."""
+    if IS_DEMO_MODE:
+        # Mock session draft in Demo Mode
+        mock_content = (
+            "## Context\n"
+            "Our query performance on the search endpoints has degraded as the node count grew past 100k. "
+            "Today we focused on creating custom composite schemas and indices in our graph database.\n\n"
+            "## Decisions Made\n"
+            "- **Decision: Adopt Composite Schema Indexes** on Entity nodes.\n"
+            "  - **Rationale**: Combining node properties `name` and `type` inside a single index constraint "
+            "reduces lookup times from O(N) scans to O(1) B-tree traversals.\n"
+            "  - **Status**: Active\n"
+            "  - **Domain**: data_model\n\n"
+            "## Problems Encountered\n"
+            "- **Problem: High query traversal latency**.\n"
+            "  - **Severity**: Medium\n"
+            "  - **Status**: Resolved\n"
+            "  - **First Observed**: 2026-05-24\n"
+            "  - **Resolved At**: 2026-05-26\n\n"
+            "## Experiments Run\n"
+            "- **Experiment: Single Property vs Composite Indexes**.\n"
+            "  - **Hypothesis**: Query lookups will drop below 10ms with composite indexing compared to 280ms on raw scans.\n"
+            "  - **Approach**: Executed 500 parallel search requests against the seeded mock database before and after indexes.\n"
+            "  - **Outcome**: p99 queries dropped to 4.2ms.\n"
+            "  - **Success**: True"
+        )
+        return {
+            "title": "Sprint 4: Database Optimization & Index Tuning",
+            "content": mock_content
+        }
+        
+    try:
+        from ingestion.session_drafter import draft_session_summary
+        title, content = await draft_session_summary()
+        return {"title": title, "content": content}
+    except Exception as e:
+        logger.error("Failed to auto-draft session summary: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

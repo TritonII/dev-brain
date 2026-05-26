@@ -8,7 +8,7 @@ and Graphiti clients (no live Neo4j required).
 
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,3 +79,78 @@ class TestDashboardEndpoints:
         response = client.post("/api/ingest", json={"title": "Sprint 3", "content": "Done"})
         assert response.status_code == 400
         assert "read-only mode" in response.json()["detail"]
+
+    @patch("dashboard.server.IS_DEMO_MODE", new=True)
+    def test_story_log_endpoint_demo_mode(self):
+        response = client.get("/api/story_log")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+        assert data[0]["title"] == "Sprint 1: Caching Tier"
+        assert len(data[0]["decisions"]) == 1
+        assert data[0]["decisions"][0]["name"] == "Use Redis for Cache"
+
+    @patch("dashboard.server.IS_DEMO_MODE", new=False)
+    @patch("dashboard.server.execute_cypher")
+    def test_story_log_endpoint_db_mode(self, mock_execute_cypher):
+        mock_session_node = MagicMock()
+        mock_session_node.get.side_effect = lambda key, default=None: {
+            "uuid": "session_123",
+            "name": "Live Sprint Session",
+            "summary": "Live testing summary",
+            "created_at": "2026-05-26T12:00:00Z",
+            "session_date": "2026-05-26"
+        }.get(key, default)
+        
+        mock_session_record = MagicMock()
+        mock_session_record.get.return_value = mock_session_node
+        
+        # Connection records
+        mock_decision_node = MagicMock()
+        mock_decision_node.labels = ["Decision"]
+        mock_decision_node.get.side_effect = lambda key, default=None: {
+            "uuid": "dec_1",
+            "name": "Live Choice",
+            "summary": "Live rationale choice",
+            "attributes": '{"status": "active", "rationale": "fast"}'
+        }.get(key, default)
+        
+        mock_conn_record = MagicMock()
+        mock_conn_record.get.return_value = mock_decision_node
+        
+        # Configure side effect for execute_cypher:
+        # First call: query sessions -> returns mock_session_record
+        # Second call: query connections -> returns mock_conn_record
+        mock_execute_cypher.side_effect = [
+            [mock_session_record],
+            [mock_conn_record]
+        ]
+        
+        response = client.get("/api/story_log")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["title"] == "Live Sprint Session"
+        assert len(data[0]["decisions"]) == 1
+        assert data[0]["decisions"][0]["name"] == "Live Choice"
+
+    @patch("dashboard.server.IS_DEMO_MODE", new=True)
+    def test_draft_session_endpoint_demo_mode(self):
+        response = client.get("/api/draft_session")
+        assert response.status_code == 200
+        data = response.json()
+        assert "title" in data
+        assert "content" in data
+        assert "Sprint 4:" in data["title"]
+
+    @patch("dashboard.server.IS_DEMO_MODE", new=False)
+    @patch("ingestion.session_drafter.draft_session_summary", new_callable=AsyncMock)
+    def test_draft_session_endpoint_db_mode(self, mock_draft_summary):
+        mock_draft_summary.return_value = ("Live Sprint Draft", "## Detailed Context")
+        
+        response = client.get("/api/draft_session")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Live Sprint Draft"
+        assert data["content"] == "## Detailed Context"
+
