@@ -4,6 +4,11 @@ Dev Brain Web Server
 
 FastAPI backend that exposes REST API endpoints for the interactive web dashboard.
 Communicates directly with Neo4j and the Graphiti client.
+
+FALLBACK DEMO MODE:
+If Neo4j or Gemini credentials are not configured, the server automatically
+enters "Demo Mode" to serve a rich, pre-populated mock dataset. This allows
+developers to experience the visualizer and timeline slider out-of-the-box!
 """
 
 import sys
@@ -27,10 +32,13 @@ from graphiti_core.nodes import EpisodeType
 
 logger = logging.getLogger(__name__)
 
+# Global flag to track Demo Mode fallback
+IS_DEMO_MODE = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the FastAPI application."""
-    # Warm up settings and Graphiti client
+    global IS_DEMO_MODE
     try:
         settings = get_settings()
         logger.info("Initializing Graphiti client for dashboard...")
@@ -38,12 +46,15 @@ async def lifespan(app: FastAPI):
         logger.info("Graphiti client successfully initialized")
     except Exception as e:
         logger.error("Failed to initialize Graphiti client on startup: %s", e)
+        logger.info("Neo4j database or Gemini offline. Enabling seamless DEMO MODE fallback.")
+        IS_DEMO_MODE = True
     
     yield
     
-    logger.info("Closing Graphiti client...")
-    await close_graphiti()
-    logger.info("Graphiti client closed")
+    if not IS_DEMO_MODE:
+        logger.info("Closing Graphiti client...")
+        await close_graphiti()
+        logger.info("Graphiti client closed")
 
 app = FastAPI(
     title="Dev Brain Dashboard",
@@ -67,16 +78,211 @@ class SessionNoteInput(BaseModel):
     content: str
 
 
-# --- Helper functions for direct Neo4j querying ---
+# --- Direct Neo4j querying helper ---
 
 async def execute_cypher(query: str, params: dict = None) -> list:
     """Helper to execute custom Cypher queries directly via Neo4jDriver."""
+    if IS_DEMO_MODE:
+        return []
     graphiti = await get_graphiti()
     driver = graphiti.graph_driver
-    
-    # execute_query is an eager execution helper on Neo4jDriver
     result = await driver.execute_query(query, **(params or {}))
     return result.records
+
+
+# --- HIGH-FIDELITY SEED DATA FOR DEMO MODE ---
+
+MOCK_NODES = [
+    {
+        "id": "node_session_1",
+        "name": "Sprint 1: Caching Tier",
+        "type": "DevSession",
+        "summary": "Focused on implementing a robust, distributed caching strategy to address response delays.",
+        "created_at": "2026-05-10T10:00:00Z",
+        "attributes": {
+            "focus_area": "backend API",
+            "outcome_status": "productive",
+            "participants": ["Developer", "Claude-Opus-4"]
+        }
+    },
+    {
+        "id": "node_decision_redis",
+        "name": "Use Redis for Cache",
+        "type": "Decision",
+        "summary": "We chose Redis over Memcached for caching to support rich data types and LRU policies.",
+        "created_at": "2026-05-10T10:30:00Z",
+        "attributes": {
+            "status": "active",
+            "domain": "data_model",
+            "rationale": "Redis offers sub-millisecond key-value retrieval and natively supports eviction policies (LRU)."
+        }
+    },
+    {
+        "id": "node_problem_lag",
+        "name": "High API Response Lag",
+        "type": "Problem",
+        "summary": "Concurrent load is causing response latency to spike past 800ms during peak hours.",
+        "created_at": "2026-05-09T18:00:00Z",
+        "attributes": {
+            "status": "resolved",
+            "severity": "high",
+            "first_observed": "2026-05-09T18:00:00Z",
+            "resolved_at": "2026-05-20T12:00:00Z"
+        }
+    },
+    {
+        "id": "node_exp_redis",
+        "name": "Redis vs In-Memory dict",
+        "type": "Experiment",
+        "summary": "Tested Redis local memory footprint vs unbounded in-memory Python dictionary cache.",
+        "created_at": "2026-05-10T14:00:00Z",
+        "attributes": {
+            "hypothesis": "Redis will lower CPU and memory footprints of the main API server process compared to local dictionaries.",
+            "approach": "Set up a local Redis instance and measured memory usage during a load test of 10k requests.",
+            "outcome": "Process memory stayed flat at 110MB with Redis, whereas dict cache expanded process memory to 450MB.",
+            "success": True
+        }
+    },
+    {
+        "id": "node_session_2",
+        "name": "Sprint 2: Auth Strategy",
+        "type": "DevSession",
+        "summary": "Explored and compared scalable authentication frameworks for third-party developer integrations.",
+        "created_at": "2026-05-15T09:00:00Z",
+        "attributes": {
+            "focus_area": "security",
+            "outcome_status": "exploratory",
+            "participants": ["Developer", "Gemini-2.5-Pro"]
+        }
+    },
+    {
+        "id": "node_decision_jwt",
+        "name": "Stateless JWT Tokens",
+        "type": "Decision",
+        "summary": "Adopted stateless JWT tokens signed locally on gateways to avoid multi-region DB session checks.",
+        "created_at": "2026-05-15T09:30:00Z",
+        "attributes": {
+            "status": "active",
+            "domain": "architecture",
+            "rationale": "Stateless signatures prevent centralized session database hits, avoiding regional latency bottlenecks."
+        }
+    },
+    {
+        "id": "node_exp_jwt",
+        "name": "Stateless JWT Latency",
+        "type": "Experiment",
+        "summary": "Measured stateless JWT local gateway check speed against central DB session calls.",
+        "created_at": "2026-05-15T13:00:00Z",
+        "attributes": {
+            "hypothesis": "Verifying stateless JWTs locally will reduce latency by at least 150ms compared to a central table query.",
+            "approach": "Simulated 1,000 requests using local PyJWT verification versus multi-region queries.",
+            "outcome": "Local JWT verification took 1.2ms on average, whereas multi-region database session lookups averaged 185ms.",
+            "success": True
+        }
+    },
+    {
+        "id": "node_session_3",
+        "name": "Sprint 3: Thread Panic",
+        "type": "DevSession",
+        "summary": "Investigated and resolved a sporadic thread deadlock freeze in local pools.",
+        "created_at": "2026-05-20T11:00:00Z",
+        "attributes": {
+            "focus_area": "backend API",
+            "outcome_status": "productive",
+            "participants": ["Developer", "Claude-Code"]
+        }
+    },
+    {
+        "id": "node_decision_mutex",
+        "name": "Thread-Safe Mutex Lock",
+        "type": "Decision",
+        "summary": "Chose a thread-safe local Mutex lock to isolate concurrency race conditions strictly within local process pools.",
+        "created_at": "2026-05-20T11:30:00Z",
+        "attributes": {
+            "status": "active",
+            "domain": "tooling",
+            "rationale": "Local Mutex lock prevents thread collisions during shared cache writes without introducing network overhead."
+        }
+    },
+    {
+        "id": "node_artifact_spec",
+        "name": "CACHING_SPEC.md",
+        "type": "Artifact",
+        "summary": "Architecture specifications document detailing API caching and Mutex strategies.",
+        "created_at": "2026-05-10T16:00:00Z",
+        "attributes": {
+            "artifact_type": "spec",
+            "path": "docs/specs/CACHING_SPEC.md"
+        }
+    }
+]
+
+MOCK_EDGES = [
+    {
+        "id": "edge_session1_redis",
+        "source": "node_session_1",
+        "target": "node_decision_redis",
+        "type": "EMERGED_FROM",
+        "fact": "Redis decision emerged during Caching Sprint.",
+        "valid_at": "2026-05-10T10:30:00Z"
+    },
+    {
+        "id": "edge_redis_lag",
+        "source": "node_decision_redis",
+        "target": "node_problem_lag",
+        "type": "VALIDATES",
+        "fact": "Redis implementation reduced latency spikes, addressing response lag.",
+        "valid_at": "2026-05-10T15:00:00Z"
+    },
+    {
+        "id": "edge_exp_redis",
+        "source": "node_exp_redis",
+        "target": "node_decision_redis",
+        "type": "VALIDATES",
+        "fact": "Memory load tests validated the choice of Redis LRU memory flatline efficiency.",
+        "valid_at": "2026-05-10T14:30:00Z"
+    },
+    {
+        "id": "edge_session2_jwt",
+        "source": "node_session_2",
+        "target": "node_decision_jwt",
+        "type": "EMERGED_FROM",
+        "fact": "JWT token choice emerged from Auth security Sprint.",
+        "valid_at": "2026-05-15T09:30:00Z"
+    },
+    {
+        "id": "edge_exp_jwt",
+        "source": "node_exp_jwt",
+        "target": "node_decision_jwt",
+        "type": "VALIDATES",
+        "fact": "Stateless verification local checks successfully validated at 1.2ms latency.",
+        "valid_at": "2026-05-15T13:30:00Z"
+    },
+    {
+        "id": "edge_session3_mutex",
+        "source": "node_session_3",
+        "target": "node_decision_mutex",
+        "type": "EMERGED_FROM",
+        "fact": "Mutex deadlock fix emerged from Thread Panic Sprint.",
+        "valid_at": "2026-05-20T11:30:00Z"
+    },
+    {
+        "id": "edge_mutex_lag",
+        "source": "node_decision_mutex",
+        "target": "node_problem_lag",
+        "type": "VALIDATES",
+        "fact": "Implementing Mutex locks successfully eliminated deadlocks, resolving load panics.",
+        "valid_at": "2026-05-20T12:00:00Z"
+    },
+    {
+        "id": "edge_spec_redis",
+        "source": "node_decision_redis",
+        "target": "node_artifact_spec",
+        "type": "REFERENCES",
+        "fact": "Redis cache configurations detailed in architecture spec doc.",
+        "valid_at": "2026-05-10T16:00:00Z"
+    }
+]
 
 
 # --- API Endpoints ---
@@ -84,9 +290,11 @@ async def execute_cypher(query: str, params: dict = None) -> list:
 @app.get("/api/health")
 async def health_check():
     """Verify backend and database connectivity."""
+    if IS_DEMO_MODE:
+        return {"status": "ok", "database": "demo_mode"}
+        
     try:
         graphiti = await get_graphiti()
-        # Verify driver connectivity
         await graphiti.graph_driver.health_check()
         return {"status": "ok", "database": "connected"}
     except Exception as e:
@@ -96,10 +304,15 @@ async def health_check():
 @app.get("/api/graph")
 async def get_graph():
     """Retrieve all Entity nodes and relationships for visualizer rendering."""
+    if IS_DEMO_MODE:
+        return {
+            "nodes": MOCK_NODES,
+            "edges": MOCK_EDGES
+        }
+
     settings = get_settings()
     group_id = settings.GRAPHITI_GROUP_ID
 
-    # Cypher query to fetch all entity nodes and edges within the group
     cypher = """
     MATCH (n:Entity)
     WHERE n.group_id = $group_id OR $group_id IN n.group_ids
@@ -119,7 +332,6 @@ async def get_graph():
             m_node = record.get("m")
             r_rel = record.get("r")
             
-            # Helper to parse node details
             for node in (n_node, m_node):
                 if node is None:
                     continue
@@ -128,7 +340,6 @@ async def get_graph():
                 if uuid in nodes_dict:
                     continue
                 
-                # Determine entity type by checking Neo4j labels or the labels property
                 node_labels = list(node.labels)
                 entity_type = "Entity"
                 for label in node_labels:
@@ -136,18 +347,15 @@ async def get_graph():
                         entity_type = label
                         break
                 
-                # If Neo4j labels doesn't contain a specific type, check properties
                 if entity_type == "Entity" and node.get("labels"):
                     props_labels = node.get("labels")
                     if isinstance(props_labels, list) and props_labels:
                         entity_type = props_labels[0]
                 
-                # Extract properties
                 name = node.get("name", "Unnamed")
                 summary = node.get("summary", "")
                 created_at = node.get("created_at")
                 
-                # Try to parse attributes
                 attributes = {}
                 attrs_raw = node.get("attributes")
                 if attrs_raw:
@@ -169,7 +377,6 @@ async def get_graph():
                     "attributes": attributes
                 }
                 
-            # Helper to parse edge details
             if r_rel is not None and n_node is not None and m_node is not None:
                 source_uuid = n_node.get("uuid")
                 target_uuid = m_node.get("uuid")
@@ -178,7 +385,6 @@ async def get_graph():
                 fact = r_rel.get("fact", "")
                 valid_at = r_rel.get("valid_at")
                 
-                # Build unique edge ID
                 edge_id = f"{source_uuid}-{rel_type}-{target_uuid}"
                 
                 edges_list.append({
@@ -203,15 +409,30 @@ async def get_graph():
 @app.get("/api/search")
 async def search_brain(query: str = Query(..., min_length=1), limit: int = 15):
     """Perform a hybrid semantic search across entities and relationships."""
-    from graphiti_core.search.search_config import SearchConfig
-    from graphiti_core.search.search_config_recipes import (
-        NODE_HYBRID_SEARCH_RRF,
-        EDGE_HYBRID_SEARCH_RRF,
-    )
-    
+    if IS_DEMO_MODE:
+        # Mock semantic search matches
+        query_lower = query.lower()
+        matched_nodes = []
+        for n in MOCK_NODES:
+            if query_lower in n["name"].lower() or query_lower in n["summary"].lower():
+                matched_nodes.append({**n, "score": 0.9})
+        
+        matched_edges = []
+        for e in MOCK_EDGES:
+            if query_lower in e["type"].lower() or query_lower in e["fact"].lower():
+                matched_edges.append({**e, "score": 0.85})
+                
+        return {"nodes": matched_nodes, "edges": matched_edges}
+
     settings = get_settings()
     try:
         graphiti = await get_graphiti()
+        
+        from graphiti_core.search.search_config import SearchConfig
+        from graphiti_core.search.search_config_recipes import (
+            NODE_HYBRID_SEARCH_RRF,
+            EDGE_HYBRID_SEARCH_RRF,
+        )
         
         config = SearchConfig(
             node_config=NODE_HYBRID_SEARCH_RRF.node_config,
@@ -225,12 +446,10 @@ async def search_brain(query: str = Query(..., min_length=1), limit: int = 15):
             group_ids=[settings.GRAPHITI_GROUP_ID],
         )
         
-        # Serialize node results
         nodes = []
         for i, node in enumerate(results.nodes):
             score = results.node_reranker_scores[i] if i < len(results.node_reranker_scores) else None
             
-            # Determine type
             node_labels = list(node.labels) if hasattr(node, "labels") else []
             entity_type = "Entity"
             for label in node_labels:
@@ -252,7 +471,6 @@ async def search_brain(query: str = Query(..., min_length=1), limit: int = 15):
                 "attributes": getattr(node, "attributes", {}) or {}
             })
             
-        # Serialize edge results
         edges = []
         for i, edge in enumerate(results.edges):
             score = results.edge_reranker_scores[i] if i < len(results.edge_reranker_scores) else None
@@ -273,6 +491,24 @@ async def search_brain(query: str = Query(..., min_length=1), limit: int = 15):
 @app.get("/api/decisions")
 async def get_decisions(status: str = "active"):
     """Retrieve decisions filtered by status."""
+    if IS_DEMO_MODE:
+        decisions = []
+        for n in MOCK_NODES:
+            if n["type"] == "Decision":
+                node_status = n["attributes"].get("status", "active")
+                if status and node_status.lower() != status.lower():
+                    continue
+                decisions.append({
+                    "id": n["id"],
+                    "name": n["name"],
+                    "summary": n["summary"],
+                    "status": node_status,
+                    "rationale": n["attributes"].get("rationale", ""),
+                    "domain": n["attributes"].get("domain", "architecture"),
+                    "created_at": n["created_at"]
+                })
+        return decisions
+
     settings = get_settings()
     group_id = settings.GRAPHITI_GROUP_ID
     
@@ -292,7 +528,6 @@ async def get_decisions(status: str = "active"):
             if node is None:
                 continue
             
-            # Parse attributes
             attrs = {}
             attrs_raw = node.get("attributes")
             if attrs_raw:
@@ -305,7 +540,6 @@ async def get_decisions(status: str = "active"):
                 elif isinstance(attrs_raw, dict):
                     attrs = attrs_raw
             
-            # Filtering by status (inside attributes or properties)
             node_status = attrs.get("status") or node.get("status") or "active"
             if status and node_status.lower() != status.lower():
                 continue
@@ -329,6 +563,27 @@ async def get_decisions(status: str = "active"):
 @app.get("/api/problems")
 async def get_problems(status: str = None):
     """Retrieve problems filtered by status (e.g. open, resolved, investigating)."""
+    if IS_DEMO_MODE:
+        problems = []
+        for n in MOCK_NODES:
+            if n["type"] == "Problem":
+                node_status = n["attributes"].get("status", "investigating")
+                if status:
+                    if status.lower() == "open" and node_status.lower() == "resolved":
+                        continue
+                    elif status.lower() != "open" and node_status.lower() != status.lower():
+                        continue
+                problems.append({
+                    "id": n["id"],
+                    "name": n["name"],
+                    "summary": n["summary"],
+                    "status": node_status,
+                    "severity": n["attributes"].get("severity", "medium"),
+                    "first_observed": n["attributes"].get("first_observed", ""),
+                    "created_at": n["created_at"]
+                })
+        return problems
+
     settings = get_settings()
     group_id = settings.GRAPHITI_GROUP_ID
     
@@ -348,7 +603,6 @@ async def get_problems(status: str = None):
             if node is None:
                 continue
             
-            # Parse attributes
             attrs = {}
             attrs_raw = node.get("attributes")
             if attrs_raw:
@@ -363,8 +617,6 @@ async def get_problems(status: str = None):
             
             node_status = attrs.get("status") or node.get("status") or "investigating"
             
-            # Filter if status is specified
-            # For problems, "open" typically maps to anything NOT "resolved"
             if status:
                 if status.lower() == "open" and node_status.lower() == "resolved":
                     continue
@@ -390,6 +642,25 @@ async def get_problems(status: str = None):
 @app.post("/api/ingest")
 async def ingest_session_note(payload: SessionNoteInput):
     """Ingest a session note directly into the Dev Brain."""
+    if IS_DEMO_MODE:
+        # Mock ingestion response in Demo Mode
+        new_id = f"node_note_{len(MOCK_NODES) + 1}"
+        MOCK_NODES.append({
+            "id": new_id,
+            "name": payload.title,
+            "type": "DevSession",
+            "summary": payload.content[:150] + "...",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "attributes": {"focus_area": "backend", "outcome_status": "productive", "participants": ["Developer"]}
+        })
+        return {
+            "status": "success",
+            "title": payload.title,
+            "entities_extracted": 1,
+            "entity_names": [payload.title],
+            "relationships_created": 0
+        }
+
     settings = get_settings()
     if settings.GRAPHITI_READ_ONLY:
         raise HTTPException(status_code=400, detail="Database is configured in read-only mode")

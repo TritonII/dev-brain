@@ -53,9 +53,15 @@ async function checkDatabaseHealth() {
         const data = await res.json();
         const indicator = document.getElementById("health-status");
         if (data.status === "ok") {
-            indicator.innerText = "Neo4j Connected";
-            indicator.parentElement.className = "flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs";
-            indicator.previousElementSibling.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 dot-blink";
+            if (data.database === "demo_mode") {
+                indicator.innerText = "Demo Mode Active (Mock)";
+                indicator.parentElement.className = "flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs glow-purple";
+                indicator.previousElementSibling.className = "w-1.5 h-1.5 rounded-full bg-purple-400 dot-blink";
+            } else {
+                indicator.innerText = "Neo4j Connected";
+                indicator.parentElement.className = "flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs";
+                indicator.previousElementSibling.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 dot-blink";
+            }
         } else {
             showErrorStatus(data.message || "Connection error");
         }
