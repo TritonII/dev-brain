@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dev Brain — Temporal Knowledge Graph</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS (via CDN) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Cytoscape.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.26.0/cytoscape.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at 50% 50%, #0e1324 0%, #05070f 100%);
+            color: #f1f5f9;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .font-outfit {
+            font-family: 'Outfit', sans-serif;
+        }
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Glassmorphism Styles */
+        .glass-card {
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .glass-card:hover {
+            border: 1px solid rgba(255, 255, 255, 0.09);
+        }
+        .glass-input {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #f1f5f9;
+        }
+        .glass-input:focus {
+            border-color: rgba(99, 102, 241, 0.6);
+            outline: none;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+        }
+        /* Glowing effects */
+        .glow-indigo {
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+        }
+        .glow-green {
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
+        }
+        .glow-red {
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.15);
+        }
+        .glow-yellow {
+            box-shadow: 0 0 20px rgba(234, 179, 8, 0.15);
+        }
+        .glow-cyan {
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
+        }
+        /* Hide scrollbars but keep functionality */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Temporal timeline slider styles */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 9999px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #6366f1;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(99, 102, 241, 0.8);
+            transition: transform 0.1s ease-in-out;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+        /* Active dot animations */
+        .dot-blink {
+            animation: blink 2s infinite ease-in-out;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+        /* Cytoscape Container */
+        #cy {
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 7, 15, 0.4);
+            border-radius: 0.75rem;
+        }
+        /* Sidebar transition */
+        .sidebar-transition {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- HEADER -->
+    <header class="h-16 shrink-0 flex items-center justify-between px-6 border-b border-white/5 glass-card relative z-30">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center glow-indigo">
+                <i class="fa-solid fa-brain text-white text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold font-outfit tracking-wide bg-clip-text text-transparent bg-gradient-to-r from-white via-indigo-200 to-indigo-400">
+                    DEV BRAIN
+                </h1>
+                <p class="text-[10px] text-indigo-300/60 font-mono tracking-widest uppercase">Temporal Knowledge Graph</p>
+            </div>
+        </div>
+
+        <!-- Middle search bar -->
+        <div class="hidden md:flex w-96 relative">
+            <input type="text" id="global-search" placeholder="Semantic search (e.g. Caching layer, unresolved bugs)..." 
+                   class="w-full px-4 py-2 pl-10 rounded-xl text-sm glass-input focus:ring-1 focus:ring-indigo-500/50">
+            <i class="fa-solid fa-magnifying-glass text-white/40 absolute left-3.5 top-3 text-xs"></i>
+            <button onclick="handleGlobalSearch()" class="absolute right-2 top-1.5 px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-[10px] rounded-lg text-white font-semibold transition">
+                Search
+            </button>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <!-- Health Connection indicator -->
+            <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 dot-blink"></span>
+                <span id="health-status">Neo4j Connected</span>
+            </div>
+            <!-- Quick View Toggle Buttons -->
+            <div class="flex bg-white/5 p-1 rounded-lg border border-white/5">
+                <button onclick="switchView('visualizer')" id="tab-visualizer" class="px-3 py-1 text-xs rounded-md font-medium transition bg-indigo-600 text-white">
+                    <i class="fa-solid fa-circle-nodes mr-1.5"></i>Visualizer
+                </button>
+                <button onclick="switchView('decisions')" id="tab-decisions" class="px-3 py-1 text-xs rounded-md font-medium transition text-white/70 hover:text-white">
+                    <i class="fa-solid fa-gavel mr-1.5"></i>Decisions
+                </button>
+                <button onclick="switchView('problems')" id="tab-problems" class="px-3 py-1 text-xs rounded-md font-medium transition text-white/70 hover:text-white">
+                    <i class="fa-solid fa-circle-exclamation mr-1.5"></i>Problems
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN BODY CONTAINER -->
+    <main class="flex-1 flex overflow-hidden relative z-20">
+
+        <!-- Left Workspace (Graph Visualizer or Lists) -->
+        <div class="flex-1 flex flex-col p-4 overflow-hidden relative">
+            
+            <!-- VIEW 1: Visualizer Workspace -->
+            <div id="view-visualizer" class="flex-1 flex flex-col gap-4 overflow-hidden">
+                <div class="flex-1 relative glass-card rounded-2xl border border-white/5 flex flex-col overflow-hidden">
+                    
+                    <!-- Graph controls panel -->
+                    <div class="absolute top-4 left-4 z-10 flex flex-col gap-2">
+                        <!-- Fit/Layout -->
+                        <div class="flex bg-slate-900/80 backdrop-blur border border-white/10 p-1 rounded-xl shadow-lg">
+                            <button onclick="fitGraph()" title="Fit to screen" class="p-2 hover:bg-white/10 text-white/70 hover:text-white rounded-lg transition text-xs">
+                                <i class="fa-solid fa-expand"></i>
+                            </button>
+                            <button onclick="layoutGraph('cose')" title="Cose layout" class="p-2 hover:bg-white/10 text-white/70 hover:text-white rounded-lg transition text-xs">
+                                <i class="fa-solid fa-diagram-project"></i>
+                            </button>
+                            <button onclick="layoutGraph('grid')" title="Grid layout" class="p-2 hover:bg-white/10 text-white/70 hover:text-white rounded-lg transition text-xs">
+                                <i class="fa-solid fa-grip"></i>
+                            </button>
+                            <button onclick="layoutGraph('circle')" title="Circle layout" class="p-2 hover:bg-white/10 text-white/70 hover:text-white rounded-lg transition text-xs">
+                                <i class="fa-solid fa-circle"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Legend panel -->
+                    <div class="absolute bottom-4 left-4 z-10 hidden sm:flex gap-3 bg-slate-900/80 backdrop-blur border border-white/10 px-3 py-2 rounded-xl shadow-lg text-[10px]">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-blue-500 glow-cyan"></span>
+                            <span class="text-white/60">DevSession</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-emerald-500 glow-green"></span>
+                            <span class="text-white/60">Decision</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-red-500 glow-red"></span>
+                            <span class="text-white/60">Problem</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-purple-500"></span>
+                            <span class="text-white/60">Experiment</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-yellow-500 glow-yellow"></span>
+                            <span class="text-white/60">Concept</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-2.5 h-2.5 rounded bg-slate-500"></span>
+                            <span class="text-white/60">Artifact</span>
+                        </div>
+                    </div>
+
+                    <!-- Graph Container -->
+                    <div id="cy" class="flex-1"></div>
+                    
+                </div>
+                
+                <!-- Timeline Slider (Temporal awareness) -->
+                <div class="h-20 shrink-0 glass-card rounded-2xl border border-white/5 p-4 flex flex-col justify-center gap-2">
+                    <div class="flex justify-between items-center text-xs">
+                        <span class="font-outfit font-medium flex items-center gap-2">
+                            <i class="fa-solid fa-clock text-indigo-400"></i>
+                            TEMPORAL GRAPH TRAVEL
+                        </span>
+                        <span id="timeline-label" class="font-mono text-indigo-300">All History</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span id="timeline-start" class="text-[10px] text-white/40 font-mono">-</span>
+                        <input type="range" id="timeline-slider" min="0" max="100" value="100" class="flex-1">
+                        <span id="timeline-end" class="text-[10px] text-white/40 font-mono">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW 2: Decisions List -->
+            <div id="view-decisions" class="hidden flex-1 flex flex-col overflow-hidden glass-card rounded-2xl border border-white/5 p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-xl font-bold font-outfit">Architectural Decisions Log</h2>
+                        <p class="text-xs text-white/50">Tracking decisions and supersession history</p>
+                    </div>
+                    <div class="flex bg-white/5 p-1 rounded-lg border border-white/5 text-xs">
+                        <button onclick="loadDecisions('active')" id="btn-decision-active" class="px-3 py-1.5 rounded-md transition bg-indigo-600 text-white font-medium">Active Only</button>
+                        <button onclick="loadDecisions('superseded')" id="btn-decision-superseded" class="px-3 py-1.5 rounded-md transition text-white/70 hover:text-white font-medium">Superseded</button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto no-scrollbar">
+                    <table class="w-full text-left text-sm border-collapse">
+                        <thead>
+                            <tr class="border-b border-white/10 text-white/60 text-xs uppercase tracking-wider">
+                                <th class="py-3 px-4">Decision</th>
+                                <th class="py-3 px-4">Domain</th>
+                                <th class="py-3 px-4">Rationale</th>
+                                <th class="py-3 px-4">Decided At</th>
+                            </tr>
+                        </thead>
+                        <tbody id="decisions-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- VIEW 3: Problems List -->
+            <div id="view-problems" class="hidden flex-1 flex flex-col overflow-hidden glass-card rounded-2xl border border-white/5 p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-xl font-bold font-outfit">Project Issues & Problems</h2>
+                        <p class="text-xs text-white/50">Unresolved bugs, active regressions, and blockers</p>
+                    </div>
+                    <div class="flex bg-white/5 p-1 rounded-lg border border-white/5 text-xs">
+                        <button onclick="loadProblems('open')" id="btn-problem-open" class="px-3 py-1.5 rounded-md transition bg-indigo-600 text-white font-medium">Open Problems</button>
+                        <button onclick="loadProblems('resolved')" id="btn-problem-resolved" class="px-3 py-1.5 rounded-md transition text-white/70 hover:text-white font-medium">Resolved</button>
+                    </div>
+                </div>
+                <div class="flex-1 overflow-y-auto no-scrollbar">
+                    <div id="problems-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Workspace Sidebar: Inspector + Ingestor -->
+        <div id="sidebar" class="w-96 shrink-0 border-l border-white/5 glass-card flex flex-col sidebar-transition relative overflow-hidden">
+            
+            <!-- Side Panel Header -->
+            <div class="h-14 border-b border-white/5 px-6 flex items-center justify-between">
+                <span class="font-outfit font-semibold uppercase tracking-wider text-xs text-indigo-300">
+                    <i class="fa-solid fa-chart-simple mr-2"></i>Workspace Panel
+                </span>
+                <div class="flex bg-white/5 rounded-lg border border-white/5 p-0.5 text-[10px]">
+                    <button onclick="toggleSidebarTab('inspect')" id="sb-tab-inspect" class="px-3 py-1 rounded bg-indigo-600 text-white font-medium transition">Inspector</button>
+                    <button onclick="toggleSidebarTab('ingest')" id="sb-tab-ingest" class="px-3 py-1 rounded text-white/60 hover:text-white font-medium transition">Ingest Note</button>
+                </div>
+            </div>
+
+            <!-- Tab 1: Inspector content -->
+            <div id="sb-content-inspect" class="flex-1 flex flex-col p-6 overflow-y-auto no-scrollbar gap-6">
+                <!-- Idle State -->
+                <div id="inspect-idle" class="flex-1 flex flex-col items-center justify-center text-center py-20 text-white/30">
+                    <i class="fa-solid fa-hand-pointer text-5xl mb-4"></i>
+                    <p class="font-outfit font-medium text-sm text-white/60">No Node Selected</p>
+                    <p class="text-xs px-8 mt-2">Click any node or relationship in the knowledge graph to view its detailed temporal metadata.</p>
+                </div>
+
+                <!-- Active State -->
+                <div id="inspect-active" class="hidden flex flex-col gap-6">
+                    <!-- Title & Type -->
+                    <div>
+                        <div id="inspect-badge" class="inline-flex px-2 py-0.5 rounded text-[10px] uppercase font-semibold font-mono tracking-wider mb-2"></div>
+                        <h3 id="inspect-title" class="text-2xl font-bold font-outfit leading-tight text-white"></h3>
+                        <p id="inspect-created" class="text-[10px] text-white/40 mt-1 font-mono"></p>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="border-t border-white/5 pt-4">
+                        <h4 class="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Summary / Description</h4>
+                        <p id="inspect-summary" class="text-sm text-white/80 leading-relaxed"></p>
+                    </div>
+
+                    <!-- Custom Attributes Schema -->
+                    <div id="inspect-attrs-section" class="border-t border-white/5 pt-4">
+                        <h4 class="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Custom Attributes</h4>
+                        <div id="inspect-attrs" class="grid grid-cols-1 gap-2.5 font-mono text-xs">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Connected relations -->
+                    <div id="inspect-rel-section" class="border-t border-white/5 pt-4">
+                        <h4 class="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Connected Relationships</h4>
+                        <div id="inspect-relations" class="flex flex-col gap-2">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Ingest Session Note -->
+            <div id="sb-content-ingest" class="hidden flex-1 flex flex-col p-6 overflow-y-auto no-scrollbar gap-4">
+                <div>
+                    <h3 class="text-lg font-bold font-outfit">Ingest DevSession Note</h3>
+                    <p class="text-xs text-white/50">Describe decisions, problems, and experiments from your work session.</p>
+                </div>
+
+                <div class="flex flex-col gap-1 mt-2">
+                    <label class="text-[10px] text-indigo-300 font-mono uppercase font-semibold">Note Title</label>
+                    <input type="text" id="note-title" placeholder="e.g. Sprint 3: Caching Implementation" class="px-4 py-2.5 rounded-xl text-sm glass-input">
+                </div>
+
+                <div class="flex-1 flex flex-col gap-1 min-h-[250px]">
+                    <label class="text-[10px] text-indigo-300 font-mono uppercase font-semibold">Session Summary Markdown</label>
+                    <textarea id="note-content" placeholder="Describe what was decided, what was implemented, and what failed. Mention keywords for richer entity extraction:
+- 'Decision: We chose X over Y because...'
+- 'Problem: API returns 500 when...'
+- 'Experiment: Tried adding Redis...'
+- 'Refs: docs/specs/API.md'" 
+                              class="flex-1 p-4 rounded-xl text-sm glass-input font-mono resize-none"></textarea>
+                </div>
+
+                <button onclick="submitSessionNote()" id="btn-submit-note" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-semibold shadow-lg glow-indigo transition duration-150 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    Ingest Into Dev Brain
+                </button>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- POPUP / DIALOGS -->
+    <div id="notification" class="fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 transition duration-300 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-xl glass-card border">
+        <i id="notif-icon" class="fa-solid"></i>
+        <div class="text-sm">
+            <h4 id="notif-title" class="font-semibold text-white leading-none"></h4>
+            <p id="notif-desc" class="text-xs text-white/60 mt-1 leading-tight"></p>
+        </div>
+    </div>
+
+    <!-- Application scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
